@@ -22,10 +22,17 @@ const defaultState = {
 let state = loadState();
 let tournamentMode = "";
 let activeTournamentId = "";
+let ballotTournamentId = "";
+let bracketTournamentId = "";
+let bracketZoom = 1;
+let sidebarCollapsed = false;
 
 const elements = {
+    pageShell: document.querySelector(".page-shell"),
     navItems: document.querySelectorAll(".nav-item"),
     panels: document.querySelectorAll(".section-panel"),
+    sidebar: document.getElementById("sidebar"),
+    sidebarToggleButton: document.getElementById("sidebarToggleButton"),
     summaryTournament: document.getElementById("summaryTournament"),
     summaryTeams: document.getElementById("summaryTeams"),
     summaryMatches: document.getElementById("summaryMatches"),
@@ -75,6 +82,26 @@ const elements = {
     playersAadharCount: document.getElementById("playersAadharCount"),
     playersCategoryCount: document.getElementById("playersCategoryCount"),
     playersOrganizationCount: document.getElementById("playersOrganizationCount"),
+    ballotTournamentSelect: document.getElementById("ballotTournamentSelect"),
+    ballotExportButton: document.getElementById("ballotExportButton"),
+    ballotPlayerCount: document.getElementById("ballotPlayerCount"),
+    ballotOrganizationCount: document.getElementById("ballotOrganizationCount"),
+    ballotCategoryLabel: document.getElementById("ballotCategoryLabel"),
+    ballotTournamentLabel: document.getElementById("ballotTournamentLabel"),
+    ballotList: document.getElementById("ballotList"),
+    bracketTournamentSelect: document.getElementById("bracketTournamentSelect"),
+    generateBracketButton: document.getElementById("generateBracketButton"),
+    exportBracketPdfButton: document.getElementById("exportBracketPdfButton"),
+    bracketZoomOutButton: document.getElementById("bracketZoomOutButton"),
+    bracketZoomInButton: document.getElementById("bracketZoomInButton"),
+    bracketZoomResetButton: document.getElementById("bracketZoomResetButton"),
+    bracketZoomLabel: document.getElementById("bracketZoomLabel"),
+    bracketStatus: document.getElementById("bracketStatus"),
+    bracketPlayerCount: document.getElementById("bracketPlayerCount"),
+    bracketSizeCount: document.getElementById("bracketSizeCount"),
+    bracketByeCount: document.getElementById("bracketByeCount"),
+    bracketRoundCount: document.getElementById("bracketRoundCount"),
+    bracketRounds: document.getElementById("bracketRounds"),
     standingsTable: document.getElementById("standingsTable"),
     standingsContext: document.getElementById("standingsContext"),
     standingsCategory: document.getElementById("standingsCategory"),
@@ -90,6 +117,13 @@ bindEvents();
 renderAll();
 
 function bindEvents() {
+    if (elements.sidebarToggleButton) {
+        elements.sidebarToggleButton.addEventListener("click", () => {
+            sidebarCollapsed = !sidebarCollapsed;
+            renderSidebarState();
+        });
+    }
+
     elements.navItems.forEach((item) => {
         item.addEventListener("click", () => {
             const section = item.dataset.section;
@@ -246,6 +280,89 @@ function bindEvents() {
         });
     }
 
+    if (elements.ballotTournamentSelect) {
+        elements.ballotTournamentSelect.addEventListener("change", () => {
+            ballotTournamentId = elements.ballotTournamentSelect.value || "";
+            renderBallot();
+        });
+    }
+
+    if (elements.ballotExportButton) {
+        elements.ballotExportButton.addEventListener("click", () => {
+            const ballotPlayers = getBallotPlayers();
+            if (ballotPlayers.length === 0) {
+                return;
+            }
+
+            const currentTournament = state.tournaments.find((item) => item.id === ballotTournamentId);
+            const label = currentTournament
+                ? `${currentTournament.name}-${currentTournament.category}`
+                : "ballot";
+            exportBallotCsv(ballotPlayers, `ballot-${slugify(label)}.csv`);
+        });
+    }
+
+    if (elements.bracketTournamentSelect) {
+        elements.bracketTournamentSelect.addEventListener("change", () => {
+            bracketTournamentId = elements.bracketTournamentSelect.value || "";
+            renderBracket();
+        });
+    }
+
+    if (elements.generateBracketButton) {
+        elements.generateBracketButton.addEventListener("click", () => {
+            if (!bracketTournamentId) {
+                setBracketStatus("Choose a saved tournament before generating a bracket.");
+                return;
+            }
+
+            const generated = generateBracketForTournament(bracketTournamentId);
+            if (!generated) {
+                return;
+            }
+
+            persist();
+            renderAll();
+            setBracketStatus("Bracket generated for the selected tournament.");
+        });
+    }
+
+    if (elements.exportBracketPdfButton) {
+        elements.exportBracketPdfButton.addEventListener("click", () => {
+            const currentTournament = state.tournaments.find((item) => item.id === bracketTournamentId);
+            if (!currentTournament) {
+                setBracketStatus("Choose a saved tournament before exporting the bracket.");
+                return;
+            }
+            if (!currentTournament.bracket) {
+                setBracketStatus("Generate the bracket before exporting it.");
+                return;
+            }
+            exportBracketPdf(currentTournament);
+        });
+    }
+
+    if (elements.bracketZoomOutButton) {
+        elements.bracketZoomOutButton.addEventListener("click", () => {
+            bracketZoom = Math.max(0.6, Number((bracketZoom - 0.1).toFixed(2)));
+            renderBracket();
+        });
+    }
+
+    if (elements.bracketZoomInButton) {
+        elements.bracketZoomInButton.addEventListener("click", () => {
+            bracketZoom = Math.min(1.8, Number((bracketZoom + 0.1).toFixed(2)));
+            renderBracket();
+        });
+    }
+
+    if (elements.bracketZoomResetButton) {
+        elements.bracketZoomResetButton.addEventListener("click", () => {
+            bracketZoom = 1;
+            renderBracket();
+        });
+    }
+
     elements.announcementForm.addEventListener("submit", (event) => {
         event.preventDefault();
         const message = elements.announcementText.value.trim();
@@ -273,10 +390,15 @@ function bindEvents() {
 }
 
 function renderAll() {
+    renderSidebarState();
     renderTournamentForm();
     renderSummary();
     renderOverviewFixed();
     renderTeams();
+    renderBallotTournamentOptions();
+    renderBallot();
+    renderBracketTournamentOptions();
+    renderBracket();
     renderStandings();
     renderAnnouncements();
     renderDetectedCategories();
@@ -288,6 +410,17 @@ function renderAll() {
     renderFilterOrganizationOptions();
     renderEditTournamentOptions();
     renderTournamentMode();
+}
+
+function renderSidebarState() {
+    if (!elements.sidebar || !elements.sidebarToggleButton || !elements.pageShell) {
+        return;
+    }
+
+    elements.sidebar.classList.toggle("collapsed", sidebarCollapsed);
+    elements.pageShell.classList.toggle("sidebar-collapsed", sidebarCollapsed);
+    elements.sidebarToggleButton.textContent = sidebarCollapsed ? ">" : "<";
+    elements.sidebarToggleButton.setAttribute("aria-label", sidebarCollapsed ? "Expand menu" : "Collapse menu");
 }
 
 function addManualPlayer() {
@@ -454,6 +587,7 @@ function saveTournamentEntry() {
             state.matches.filter((match) => allowedIds.has(match.teamA) && allowedIds.has(match.teamB))
         ),
         announcements: cloneState(state.announcements),
+        bracket: existingIndex === -1 ? null : cloneState(state.tournaments[existingIndex].bracket || null),
     };
 
     if (existingIndex === -1) {
@@ -734,6 +868,108 @@ function renderManualCategoryOptions() {
         : '<option value="">Import players to load categories</option>';
 }
 
+function generateBracketForTournament(tournamentId) {
+    const tournamentIndex = state.tournaments.findIndex((item) => item.id === tournamentId);
+    if (tournamentIndex === -1) {
+        setBracketStatus("Saved tournament not found.");
+        return false;
+    }
+
+    const tournament = state.tournaments[tournamentIndex];
+    const players = getBracketPlayers(tournament);
+    if (players.length < 2) {
+        setBracketStatus("At least 2 entries are needed to create a bracket.");
+        return false;
+    }
+
+    const size = getBracketSize(players.length);
+    const byes = size - players.length;
+    const seedPositions = getSeedPositions(size);
+    const arrangedPlayers = arrangePlayersForBracket(players, seedPositions, size);
+    const seededSlots = Array.from({ length: size }, () => null);
+    arrangedPlayers.forEach((player, index) => {
+        const bracketPosition = seedPositions[index];
+        if (!bracketPosition) {
+            return;
+        }
+        seededSlots[bracketPosition - 1] = {
+            id: player.id,
+            name: player.name,
+            registrationNumber: player.registrationNumber,
+            aadhar: player.aadhar,
+            organization: player.organization,
+            category: player.category,
+            contact: player.contact,
+            seed: index + 1,
+        };
+    });
+    const rounds = [];
+    let currentEntries = seededSlots.map((player) => (
+        player
+            ? {
+                type: "player",
+                label: formatBracketPlayerLabel(player),
+                seed: player.seed,
+                bye: false,
+            }
+            : { type: "bye", label: "BYE" }
+    ));
+    let matchSequence = 1;
+
+    const roundCount = Math.log2(size);
+    for (let roundIndex = 0; roundIndex < roundCount; roundIndex += 1) {
+        const matches = [];
+        const nextEntries = [];
+
+        for (let matchIndex = 0; matchIndex < currentEntries.length; matchIndex += 2) {
+            const slotA = currentEntries[matchIndex];
+            const slotB = currentEntries[matchIndex + 1];
+            const autoAdvance = getAutoAdvanceEntry(slotA, slotB);
+            const label = autoAdvance ? "Auto advance" : `Match ${matchSequence}`;
+            const roundLabel = getBracketRoundLabel(roundIndex, roundCount);
+            matches.push({
+                label,
+                displayLabel: autoAdvance ? roundLabel : `${roundLabel} - ${label}`,
+                slotA: slotA?.label || "TBD",
+                slotB: slotB?.label || "TBD",
+                seedA: slotA?.seed || "",
+                seedB: slotB?.seed || "",
+                byeA: Boolean(slotA?.bye),
+                byeB: Boolean(slotB?.bye),
+                isPlayable: !autoAdvance,
+            });
+
+            if (autoAdvance) {
+                nextEntries.push(autoAdvance);
+            } else {
+                nextEntries.push({
+                    type: "winner_ref",
+                    label: `Winner of ${label}`,
+                    bye: false,
+                });
+            }
+
+            if (!autoAdvance) {
+                matchSequence += 1;
+            }
+        }
+
+        rounds.push({ matches });
+        currentEntries = nextEntries;
+    }
+
+    state.tournaments[tournamentIndex] = {
+        ...tournament,
+        bracket: {
+            size,
+            byes,
+            rounds,
+        },
+    };
+
+    return true;
+}
+
 function renderPlayersSummary() {
     if (!elements.playersRegistrationCount) {
         return;
@@ -748,6 +984,495 @@ function renderPlayersSummary() {
     elements.playersAadharCount.textContent = String(aadharCount);
     elements.playersCategoryCount.textContent = String(categoryCount);
     elements.playersOrganizationCount.textContent = String(organizationCount);
+}
+
+function getAutoAdvanceEntry(slotA, slotB) {
+    if (!slotA && !slotB) {
+        return { type: "bye", label: "BYE" };
+    }
+    if (slotA?.type === "player" && slotB?.type === "bye") {
+        return {
+            ...slotA,
+            bye: true,
+        };
+    }
+    if (slotA?.type === "bye" && slotB?.type === "player") {
+        return {
+            ...slotB,
+            bye: true,
+        };
+    }
+    if (slotA?.type === "player" && !slotB) {
+        return {
+            ...slotA,
+            bye: true,
+        };
+    }
+    if (!slotA && slotB?.type === "player") {
+        return {
+            ...slotB,
+            bye: true,
+        };
+    }
+    return null;
+}
+
+function getSeedPositions(size) {
+    if (size <= 1) {
+        return [1];
+    }
+
+    let positions = [1, 2];
+    while (positions.length < size) {
+        const mirrorBase = positions.length * 2 + 1;
+        positions = positions.flatMap((seed) => [seed, mirrorBase - seed]);
+    }
+    return positions;
+}
+
+function arrangePlayersForBracket(players, seedPositions, size) {
+    const remaining = players.map((player) => ({ ...player }));
+    const seededSlots = Array.from({ length: size }, () => null);
+    const arranged = [];
+
+    seedPositions.forEach((bracketPosition) => {
+        const slotIndex = bracketPosition - 1;
+        const opponentIndex = getFirstRoundOpponentIndex(slotIndex);
+        const opponent = seededSlots[opponentIndex];
+        const candidateIndex = chooseBracketCandidateIndex(remaining, opponent);
+
+        if (candidateIndex === -1) {
+            return;
+        }
+
+        const [chosen] = remaining.splice(candidateIndex, 1);
+        seededSlots[slotIndex] = chosen;
+        arranged.push(chosen);
+    });
+
+    return arranged;
+}
+
+function getFirstRoundOpponentIndex(slotIndex) {
+    return slotIndex % 2 === 0 ? slotIndex + 1 : slotIndex - 1;
+}
+
+function chooseBracketCandidateIndex(players, opponent) {
+    if (!players.length) {
+        return -1;
+    }
+    if (!opponent) {
+        return 0;
+    }
+
+    const opponentOrg = getBracketOrganizationIdentity(opponent.organization);
+    if (!opponentOrg) {
+        return 0;
+    }
+
+    const differentOrgIndex = players.findIndex((player) => (
+        getBracketOrganizationIdentity(player.organization) !== opponentOrg
+    ));
+
+    return differentOrgIndex === -1 ? 0 : differentOrgIndex;
+}
+
+function getBracketOrganizationIdentity(value) {
+    return String(getDisplayOrganization(value) || "").trim().toLowerCase();
+}
+
+function getBracketRoundLabel(roundIndex, roundCount) {
+    const remainingRounds = roundCount - roundIndex;
+    if (remainingRounds <= 1) {
+        return "Final";
+    }
+    if (remainingRounds === 2) {
+        return "Semifinal";
+    }
+    if (remainingRounds === 3) {
+        return "Quarterfinal";
+    }
+
+    const fieldSize = 2 ** remainingRounds;
+    return `Round of ${fieldSize}`;
+}
+
+function getBracketRoundMetrics(roundCount) {
+    const cardHeight = 112;
+    const baseGap = 18;
+    const metrics = [];
+    let previousGap = baseGap;
+
+    for (let roundIndex = 0; roundIndex < roundCount; roundIndex += 1) {
+        if (roundIndex === 0) {
+            metrics.push({ gap: baseGap, offset: 0 });
+            continue;
+        }
+
+        const offset = Math.round((cardHeight + previousGap) / 2);
+        const gap = Math.round((cardHeight + previousGap) * 2 - cardHeight);
+        metrics.push({ gap, offset });
+        previousGap = gap;
+    }
+
+    return metrics;
+}
+
+function renderBracketSvg(bracket, tournament) {
+    const layout = getBracketSvgLayout(bracket.rounds);
+    const finalRound = bracket.rounds[bracket.rounds.length - 1];
+    const championLabel = finalRound?.matches?.[0]
+        ? `Winner of ${finalRound.matches[0].label}`
+        : "Champion";
+    const title = `${tournament.name} - ${tournament.category}`;
+
+    const parts = [
+        `<div class="bracket-svg-wrap" style="--bracket-scale:${bracketZoom};">`,
+        `<svg class="bracket-svg" width="${layout.width}" height="${layout.height}" viewBox="0 0 ${layout.width} ${layout.height}" role="img" aria-label="${escapeHtml(title)} bracket">`,
+        `<rect x="0" y="0" width="${layout.width}" height="${layout.height}" rx="24" fill="#081321"></rect>`,
+        `<text x="${layout.paddingX}" y="34" class="svg-title">${escapeXml(title)}</text>`,
+        `<text x="${layout.paddingX}" y="${layout.height - 14}" class="svg-match-label">Bracket preview</text>`,
+    ];
+
+    bracket.rounds.forEach((round, roundIndex) => {
+        round.matches.forEach((match, matchIndex) => {
+            const matchBox = getSvgMatchBox(layout, roundIndex, matchIndex);
+            const topSlotY = matchBox.y + layout.labelHeight;
+            const bottomSlotY = topSlotY + layout.slotHeight + layout.slotGap;
+            const slotLineStartX = matchBox.x + matchBox.width;
+            const mergeX = slotLineStartX + layout.connectorReach;
+            const topMidY = topSlotY + layout.slotHeight / 2;
+            const bottomMidY = bottomSlotY + layout.slotHeight / 2;
+            const mergeMidY = (topMidY + bottomMidY) / 2;
+
+            if (!match.isPlayable) {
+                return;
+            }
+
+            parts.push(
+                `<rect x="${matchBox.x}" y="${matchBox.y}" width="${matchBox.width}" height="${matchBox.height}" rx="18" class="${match.isPlayable ? "svg-match-box" : "svg-match-box svg-match-box-auto"}"></rect>`,
+                `<text x="${matchBox.x + 14}" y="${matchBox.y + 18}" class="${match.isPlayable ? "svg-match-label" : "svg-match-label svg-match-label-auto"}">${escapeXml(match.displayLabel || match.label)}</text>`,
+                renderSvgSlot(matchBox.x + 12, topSlotY, layout, match.seedA, match.slotA, match.byeA),
+                renderSvgSlot(matchBox.x + 12, bottomSlotY, layout, match.seedB, match.slotB, match.byeB)
+            );
+
+            if (roundIndex < bracket.rounds.length - 1) {
+                const nextMatchBox = getSvgMatchBox(layout, roundIndex + 1, Math.floor(matchIndex / 2));
+                const nextCenterX = nextMatchBox.x;
+                const nextCenterY = nextMatchBox.y + layout.labelHeight + layout.slotHeight + layout.slotGap / 2;
+
+                parts.push(
+                    `<path d="M ${slotLineStartX} ${topMidY} L ${mergeX} ${topMidY} L ${mergeX} ${bottomMidY} L ${slotLineStartX} ${bottomMidY}" class="svg-connector"></path>`,
+                    `<path d="M ${mergeX} ${mergeMidY} L ${nextCenterX - 18} ${mergeMidY} L ${nextCenterX - 18} ${nextCenterY} L ${nextCenterX} ${nextCenterY}" class="svg-connector"></path>`
+                );
+            } else {
+                const championX = layout.paddingX + bracket.rounds.length * layout.columnWidth;
+                const championMidY = layout.championY + layout.championHeight / 2;
+                parts.push(
+                    `<path d="M ${slotLineStartX} ${topMidY} L ${mergeX} ${topMidY} L ${mergeX} ${bottomMidY} L ${slotLineStartX} ${bottomMidY}" class="svg-connector"></path>`,
+                    `<path d="M ${mergeX} ${mergeMidY} L ${championX - 24} ${mergeMidY} L ${championX - 24} ${championMidY} L ${championX} ${championMidY}" class="svg-connector"></path>`
+                );
+            }
+        });
+    });
+
+    parts.push(
+        `<rect x="${layout.paddingX + bracket.rounds.length * layout.columnWidth}" y="${layout.championY}" width="${layout.championWidth}" height="${layout.championHeight}" rx="22" class="svg-champion-box"></rect>`,
+        `<text x="${layout.paddingX + bracket.rounds.length * layout.columnWidth + 16}" y="${layout.championY + 24}" class="svg-match-label">Final winner</text>`,
+        `<text x="${layout.paddingX + bracket.rounds.length * layout.columnWidth + 16}" y="${layout.championY + 56}" class="svg-champion-name">${escapeXml(championLabel)}</text>`,
+        `</svg>`,
+        `</div>`
+    );
+
+    return parts.join("");
+}
+
+function renderSvgSlot(x, y, layout, seed, label, bye) {
+    const slotLabel = bye ? addByeNoteToLabel(label || "TBD") : (label || "TBD");
+    return [
+        `<rect x="${x}" y="${y}" width="${layout.slotWidth}" height="${layout.slotHeight}" rx="12" class="svg-slot"></rect>`,
+        `<rect x="${x + 8}" y="${y + 6}" width="${layout.seedWidth}" height="${layout.slotHeight - 12}" rx="8" class="svg-seed-box"></rect>`,
+        `<text x="${x + 8 + layout.seedWidth / 2}" y="${y + layout.slotHeight / 2 + 4}" text-anchor="middle" class="svg-seed-text">${escapeXml(seed || "-")}</text>`,
+        `<text x="${x + 8 + layout.seedWidth + 12}" y="${y + layout.slotHeight / 2 + 4}" class="svg-slot-text">${escapeXml(slotLabel)}</text>`,
+    ].join("");
+}
+
+function getSvgMatchBox(layout, roundIndex, matchIndex) {
+    const step = layout.baseStep * (2 ** roundIndex);
+    const centerY = layout.firstCenterY + ((2 ** roundIndex) - 1) * layout.baseStep / 2 + matchIndex * step;
+    return {
+        x: layout.paddingX + roundIndex * layout.columnWidth,
+        y: centerY - layout.matchHeight / 2,
+        width: layout.matchWidth,
+        height: layout.matchHeight,
+    };
+}
+
+function getBracketSvgLayout(rounds) {
+    const paddingX = 28;
+    const paddingBottom = 34;
+    const headerHeight = 64;
+    const titleY = 58;
+    const roundTitleOffset = 24;
+    const matchWidth = 248;
+    const matchHeight = 112;
+    const labelHeight = 22;
+    const slotHeight = 30;
+    const slotGap = 10;
+    const slotWidth = matchWidth - 24;
+    const seedWidth = 24;
+    const baseGap = 28;
+    const baseStep = matchHeight + baseGap;
+    const firstCenterY = headerHeight + roundTitleOffset + matchHeight / 2;
+    const firstRoundMatches = rounds[0]?.matches.length || 0;
+    const bodyHeight = firstRoundMatches > 0
+        ? firstRoundMatches * matchHeight + (firstRoundMatches - 1) * baseGap
+        : matchHeight;
+    const championWidth = 220;
+    const championHeight = 92;
+    const championY = headerHeight + roundTitleOffset + bodyHeight / 2 - championHeight / 2;
+    const connectorReach = 18;
+    const columnWidth = 320;
+    const width = paddingX * 2 + rounds.length * columnWidth + championWidth;
+    const height = Math.max(championY + championHeight + paddingBottom, headerHeight + roundTitleOffset + bodyHeight + paddingBottom);
+
+    return {
+        paddingX,
+        titleY,
+        matchWidth,
+        matchHeight,
+        labelHeight,
+        slotHeight,
+        slotGap,
+        slotWidth,
+        seedWidth,
+        baseStep,
+        firstCenterY,
+        championWidth,
+        championHeight,
+        championY,
+        connectorReach,
+        columnWidth,
+        width,
+        height,
+    };
+}
+
+function exportBracketPdf(tournament) {
+    const bracket = tournament?.bracket;
+    if (!bracket) {
+        return;
+    }
+
+    const bracketMarkup = renderBracketSvg(bracket, tournament);
+    const exportHtml = `
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <title>${escapeHtml(`${tournament.name} - ${tournament.category}`)} Bracket</title>
+            <style>
+                body {
+                    margin: 0;
+                    padding: 24px;
+                    font-family: "Segoe UI", Arial, sans-serif;
+                    background: #ffffff;
+                    color: #111111;
+                }
+                .bracket-export {
+                    overflow: visible;
+                }
+                .bracket-svg-wrap {
+                    transform: none !important;
+                    width: 100%;
+                    background: #ffffff;
+                }
+                .bracket-svg {
+                    width: 100%;
+                    height: auto;
+                }
+                .svg-title,
+                .svg-round-title,
+                .svg-match-label,
+                .svg-seed-text,
+                .svg-slot-text,
+                .svg-champion-name {
+                    fill: #111111;
+                }
+                .svg-match-box,
+                .svg-slot,
+                .svg-seed-box,
+                .svg-champion-box {
+                    fill: #ffffff;
+                    stroke: #bcbcbc;
+                }
+                .svg-connector {
+                    stroke: #8f8f8f;
+                }
+                @page {
+                    size: A4 landscape;
+                    margin: 12mm;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="bracket-export">${bracketMarkup}</div>
+            <script>
+                window.addEventListener("load", () => {
+                    window.print();
+                });
+            <\/script>
+        </body>
+        </html>
+    `;
+
+    const exportBlob = new Blob([exportHtml], { type: "text/html" });
+    const exportUrl = URL.createObjectURL(exportBlob);
+    const exportLink = document.createElement("a");
+    exportLink.href = exportUrl;
+    exportLink.target = "_blank";
+    exportLink.rel = "noopener noreferrer";
+    document.body.appendChild(exportLink);
+    exportLink.click();
+    exportLink.remove();
+    setTimeout(() => URL.revokeObjectURL(exportUrl), 30000);
+    setBracketStatus("PDF view opened. Use Save as PDF in the print dialog.");
+}
+
+function renderBallotTournamentOptions() {
+    if (!elements.ballotTournamentSelect) {
+        return;
+    }
+
+    if (!Array.isArray(state.tournaments) || state.tournaments.length === 0) {
+        elements.ballotTournamentSelect.innerHTML = '<option value="">No saved tournaments</option>';
+        ballotTournamentId = "";
+        return;
+    }
+
+    if (!ballotTournamentId || !state.tournaments.some((item) => item.id === ballotTournamentId)) {
+        ballotTournamentId = state.tournaments[0].id;
+    }
+
+    elements.ballotTournamentSelect.innerHTML = state.tournaments
+        .map((item) => {
+            const label = `${item.name} - ${item.category}`;
+            const selected = item.id === ballotTournamentId ? ' selected' : "";
+            return `<option value="${item.id}"${selected}>${escapeHtml(label)}</option>`;
+        })
+        .join("");
+}
+
+function renderBallot() {
+    if (!elements.ballotList) {
+        return;
+    }
+
+    const currentTournament = state.tournaments.find((item) => item.id === ballotTournamentId);
+    const ballotPlayers = getBallotPlayers();
+
+    if (elements.ballotTournamentLabel) {
+        elements.ballotTournamentLabel.textContent = currentTournament?.name || "-";
+    }
+    if (elements.ballotCategoryLabel) {
+        elements.ballotCategoryLabel.textContent = currentTournament?.category || "-";
+    }
+    if (elements.ballotPlayerCount) {
+        elements.ballotPlayerCount.textContent = String(ballotPlayers.length);
+    }
+    if (elements.ballotOrganizationCount) {
+        elements.ballotOrganizationCount.textContent = String(
+            new Set(ballotPlayers.map((team) => String(team.organization || "").trim()).filter(Boolean)).size
+        );
+    }
+
+    if (!currentTournament) {
+        elements.ballotList.innerHTML = '<tr><td colspan="6">Save a tournament first to prepare a ballot.</td></tr>';
+        return;
+    }
+
+    if (ballotPlayers.length === 0) {
+        elements.ballotList.innerHTML = '<tr><td colspan="6">No ballot entries available for the selected tournament.</td></tr>';
+        return;
+    }
+
+    elements.ballotList.innerHTML = ballotPlayers
+        .map(
+            (team, index) => `
+                <tr>
+                    <td>${index + 1}</td>
+                    <td>${escapeHtml(getDisplayOrganization(team.organization) || "")}</td>
+                    <td>${escapeHtml(team.name || "-")}</td>
+                    <td>${escapeHtml(team.registrationNumber || "-")}</td>
+                    <td>${escapeHtml(team.aadhar || "-")}</td>
+                    <td>${escapeHtml(team.contact || "-")}</td>
+                </tr>
+            `
+        )
+        .join("");
+}
+
+function renderBracketTournamentOptions() {
+    if (!elements.bracketTournamentSelect) {
+        return;
+    }
+
+    if (!Array.isArray(state.tournaments) || state.tournaments.length === 0) {
+        elements.bracketTournamentSelect.innerHTML = '<option value="">No saved tournaments</option>';
+        bracketTournamentId = "";
+        return;
+    }
+
+    if (!bracketTournamentId || !state.tournaments.some((item) => item.id === bracketTournamentId)) {
+        bracketTournamentId = state.tournaments[0].id;
+    }
+
+    elements.bracketTournamentSelect.innerHTML = state.tournaments
+        .map((item) => {
+            const label = `${item.name} - ${item.category}`;
+            const selected = item.id === bracketTournamentId ? ' selected' : "";
+            return `<option value="${item.id}"${selected}>${escapeHtml(label)}</option>`;
+        })
+        .join("");
+}
+
+function renderBracket() {
+    if (!elements.bracketRounds) {
+        return;
+    }
+
+    if (elements.bracketZoomLabel) {
+        elements.bracketZoomLabel.textContent = `${Math.round(bracketZoom * 100)}%`;
+    }
+
+    const currentTournament = state.tournaments.find((item) => item.id === bracketTournamentId);
+    const bracketPlayers = getBracketPlayers(currentTournament);
+    const bracket = currentTournament?.bracket || null;
+
+    elements.bracketPlayerCount.textContent = String(bracketPlayers.length);
+    elements.bracketSizeCount.textContent = String(bracket?.size || 0);
+    elements.bracketByeCount.textContent = String(bracket?.byes || 0);
+    elements.bracketRoundCount.textContent = String(bracket?.rounds?.length || 0);
+
+    if (!currentTournament) {
+        elements.bracketRounds.innerHTML = "";
+        setBracketStatus("Choose a saved tournament to prepare its bracket.");
+        return;
+    }
+
+    if (!bracket) {
+        elements.bracketRounds.innerHTML = "";
+        setBracketStatus("Generate a bracket for the selected tournament.");
+        return;
+    }
+
+    try {
+        setBracketStatus(`Showing bracket for ${currentTournament.name} - ${currentTournament.category}.`);
+        elements.bracketRounds.innerHTML = renderBracketSvg(bracket, currentTournament);
+    } catch (error) {
+        elements.bracketRounds.innerHTML = '<div class="empty-state">Unable to render the bracket preview right now.</div>';
+        setBracketStatus(`Bracket render error: ${error instanceof Error ? error.message : String(error)}`);
+    }
 }
 
 function renderFilterCategoryOptions() {
@@ -900,7 +1625,7 @@ function renderTeams() {
         fragment.querySelector(".item-title").textContent = team.name || "-";
         fragment.querySelector(".player-reg").textContent = team.registrationNumber || "-";
         fragment.querySelector(".player-aadhar").textContent = team.aadhar || "-";
-        fragment.querySelector(".player-org").textContent = team.organization || "-";
+        fragment.querySelector(".player-org").textContent = getDisplayOrganization(team.organization) || "";
         fragment.querySelector(".player-category").textContent = team.category || "-";
         fragment.querySelector(".player-contact").textContent = team.contact || "-";
         fragment.querySelector(".remove-team").addEventListener("click", () => {
@@ -1086,6 +1811,12 @@ function setTournamentModeStatus(message) {
     }
 }
 
+function setBracketStatus(message) {
+    if (elements.bracketStatus) {
+        elements.bracketStatus.textContent = message;
+    }
+}
+
 function normalizeImportMeta(importMeta) {
     return {
         categories: Array.isArray(importMeta?.categories) ? cloneState(importMeta.categories) : [],
@@ -1150,6 +1881,13 @@ function loadState() {
                     importMeta: normalizeImportMeta(item.importMeta),
                     matches: Array.isArray(item.matches) ? item.matches : [],
                     announcements: Array.isArray(item.announcements) ? item.announcements : [],
+                    bracket: item.bracket
+                        ? {
+                            size: Number(item.bracket.size || 0),
+                            byes: Number(item.bracket.byes || 0),
+                            rounds: Array.isArray(item.bracket.rounds) ? cloneState(item.bracket.rounds) : [],
+                        }
+                        : null,
                 }))
                 : [],
             importMeta: normalizeImportMeta(parsed.importMeta),
@@ -1231,8 +1969,45 @@ function getAvailableCategories() {
 
 function getAvailableOrganizations() {
     return Array.from(
-        new Set(state.teams.map((team) => String(team.organization || "").trim()).filter(Boolean))
+        new Set(state.teams.map((team) => getDisplayOrganization(team.organization)).filter(Boolean))
     ).sort((a, b) => a.localeCompare(b));
+}
+
+function getBracketPlayers(tournament) {
+    if (!tournament) {
+        return [];
+    }
+
+    const tournamentCategory = String(tournament.category || "").trim();
+    return normalizeTeams(tournament.teams)
+        .filter((team) => String(team.category || "").trim() === tournamentCategory)
+        .sort((a, b) =>
+            getDisplayOrganization(a.organization).localeCompare(getDisplayOrganization(b.organization))
+            || String(a.name || "").localeCompare(String(b.name || ""))
+        );
+}
+
+function getBallotPlayers() {
+    const currentTournament = state.tournaments.find((item) => item.id === ballotTournamentId);
+    if (!currentTournament) {
+        return [];
+    }
+
+    const tournamentCategory = String(currentTournament.category || "").trim();
+    return normalizeTeams(currentTournament.teams)
+        .filter((team) => String(team.category || "").trim() === tournamentCategory)
+        .sort((a, b) =>
+            getDisplayOrganization(a.organization).localeCompare(getDisplayOrganization(b.organization))
+            || String(a.name || "").localeCompare(String(b.name || ""))
+        );
+}
+
+function getBracketSize(entryCount) {
+    let size = 1;
+    while (size < entryCount) {
+        size *= 2;
+    }
+    return size;
 }
 
 function getTournamentPlayers() {
@@ -1298,6 +2073,30 @@ function exportPlayersCsv(players, fileName) {
     URL.revokeObjectURL(url);
 }
 
+function exportBallotCsv(players, fileName) {
+    const headers = ["S.No", "Organization", "Player", "Registration No.", "Aadhar", "Contact"];
+    const rows = players.map((team, index) => [
+        String(index + 1),
+        getDisplayOrganization(team.organization),
+        team.name || "",
+        team.registrationNumber || "",
+        team.aadhar || "",
+        team.contact || "",
+    ]);
+
+    const csv = [headers, ...rows]
+        .map((row) => row.map(csvEscape).join(","))
+        .join("\r\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = fileName;
+    link.click();
+    URL.revokeObjectURL(url);
+}
+
 function exportSkippedCsv(entries, fileName) {
     const headers = ["S.No", "Player", "Registration No.", "Aadhar", "Organization", "Category", "Reason"];
     const rows = entries.map((entry, index) => [
@@ -1337,6 +2136,79 @@ function slugify(value) {
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-+|-+$/g, "") || "all";
+}
+
+function getDisplayOrganization(value) {
+    const organization = String(value || "").trim();
+    if (!organization) {
+        return "";
+    }
+    const normalized = organization.toLowerCase().replace(/\s+/g, " ");
+    const otherLikeValues = [
+        "others",
+        "other",
+    ];
+    const otherLikePhrases = [
+        "if not belonging to above institutions",
+        "if not belonging to above institution",
+        "not belonging to above institutions",
+        "not belonging to above institution",
+    ];
+
+    if (otherLikeValues.includes(normalized)) {
+        return "";
+    }
+
+    if (otherLikePhrases.some((phrase) => normalized.includes(phrase))) {
+        return "";
+    }
+
+    return organization;
+}
+
+function formatBracketPlayerLabel(player) {
+    const name = String(player?.name || "").trim() || "TBD";
+    const organization = getBracketOrganizationLabel(player?.organization);
+    return organization ? `${name} - ${organization}` : name;
+}
+
+function addByeNoteToLabel(label) {
+    const text = String(label || "").trim();
+    if (!text) {
+        return "BYE";
+    }
+    return text.includes("(BYE)") ? text : `${text} (BYE)`;
+}
+
+function getBracketOrganizationLabel(value) {
+    const organization = getDisplayOrganization(value);
+    if (!organization) {
+        return "";
+    }
+
+    const acronymMatch = organization.match(/\(([^)]+)\)\s*$/);
+    if (acronymMatch) {
+        return acronymMatch[1].trim();
+    }
+
+    const words = organization
+        .replace(/[()]/g, " ")
+        .split(/\s+/)
+        .filter(Boolean);
+    if (words.length === 0) {
+        return "";
+    }
+
+    if (words.length === 1) {
+        return words[0].slice(0, 10);
+    }
+
+    const acronym = words
+        .filter((word) => /[A-Za-z]/.test(word))
+        .map((word) => word[0].toUpperCase())
+        .join("");
+
+    return acronym || organization.slice(0, 10);
 }
 
 function formatCategoryList(values) {
@@ -1396,6 +2268,10 @@ function escapeHtml(value) {
         .replaceAll(">", "&gt;")
         .replaceAll('"', "&quot;")
         .replaceAll("'", "&#39;");
+}
+
+function escapeXml(value) {
+    return escapeHtml(value);
 }
 
 function renderOverviewFixed() {

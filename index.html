@@ -26,9 +26,12 @@
             </div>
         </header>
         <main class="app-grid">
-            <aside class="sidebar">
+            <aside class="sidebar" id="sidebar">
+                <button class="sidebar-toggle" id="sidebarToggleButton" type="button" aria-label="Collapse menu">&lt;</button>
                 <button class="nav-item active" data-section="overview">Overview</button>
                 <button class="nav-item" data-section="tournament">Tournament Setup</button>
+                <button class="nav-item" data-section="ballot">Ballot</button>
+                <button class="nav-item" data-section="bracket">Bracket</button>
                 <button class="nav-item" data-section="standings">Standings</button>
                 <button class="nav-item" data-section="announcements">Announcements</button>
             </aside>
@@ -241,6 +244,82 @@
                             </form>
                             <div id="manualPlayerStatus" class="empty-state small">No manual player added yet.</div>
                         </div>
+                    </div>
+                </section>
+                <section class="panel section-panel" data-section="ballot">
+                    <div class="panel-heading">
+                        <div>
+                            <p class="eyebrow">Ballot</p>
+                            <h2>Prepare ballot</h2>
+                            <p class="item-subtitle">Select a saved tournament to prepare a ballot-ready player list grouped by organization.</p>
+                        </div>
+                    </div>
+                    <div class="panel-card import-card">
+                        <div class="form-grid compact-form">
+                            <label>Saved tournament
+                                <select id="ballotTournamentSelect">
+                                    <option value="">No saved tournaments</option>
+                                </select>
+                            </label>
+                            <button class="button secondary" id="ballotExportButton" type="button">Export ballot</button>
+                        </div>
+                        <div class="stat-grid players-summary">
+                            <article><span>Entries</span><strong id="ballotPlayerCount">0</strong></article>
+                            <article><span>Organizations</span><strong id="ballotOrganizationCount">0</strong></article>
+                            <article><span>Category</span><strong id="ballotCategoryLabel">-</strong></article>
+                            <article><span>Tournament</span><strong id="ballotTournamentLabel">-</strong></article>
+                        </div>
+                        <div class="table-wrap">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>S.No</th>
+                                        <th>Organization</th>
+                                        <th>Player</th>
+                                        <th>Registration No.</th>
+                                        <th>Aadhar</th>
+                                        <th>Contact</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="ballotList"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+                <section class="panel section-panel" data-section="bracket">
+                    <div class="panel-heading">
+                        <div>
+                            <p class="eyebrow">Bracket</p>
+                            <h2>Create knockout bracket</h2>
+                            <p class="item-subtitle">Choose a saved tournament and generate a single-elimination bracket from its entries.</p>
+                        </div>
+                    </div>
+                    <div class="panel-card import-card">
+                        <div class="bracket-toolbar compact-form">
+                            <label class="bracket-picker">Saved tournament
+                                <select id="bracketTournamentSelect">
+                                    <option value="">No saved tournaments</option>
+                                </select>
+                            </label>
+                            <div class="bracket-actions">
+                                <button class="button secondary" id="generateBracketButton" type="button">Generate bracket</button>
+                                <button class="button ghost" id="exportBracketPdfButton" type="button">Export PDF</button>
+                            </div>
+                        </div>
+                        <div class="bracket-zoom-bar">
+                            <button class="button ghost" id="bracketZoomOutButton" type="button">A-</button>
+                            <span id="bracketZoomLabel">100%</span>
+                            <button class="button ghost" id="bracketZoomInButton" type="button">A+</button>
+                            <button class="button ghost" id="bracketZoomResetButton" type="button">Reset</button>
+                        </div>
+                        <div id="bracketStatus" class="empty-state small">Choose a saved tournament to prepare its bracket.</div>
+                        <div class="stat-grid players-summary">
+                            <article><span>Entries</span><strong id="bracketPlayerCount">0</strong></article>
+                            <article><span>Bracket size</span><strong id="bracketSizeCount">0</strong></article>
+                            <article><span>Byes</span><strong id="bracketByeCount">0</strong></article>
+                            <article><span>Rounds</span><strong id="bracketRoundCount">0</strong></article>
+                        </div>
+                        <div id="bracketRounds" class="bracket-grid"></div>
                     </div>
                 </section>
                 <section class="panel section-panel" data-section="standings">
