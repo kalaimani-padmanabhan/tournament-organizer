@@ -26,6 +26,10 @@ let ballotTournamentId = "";
 let bracketTournamentId = "";
 let bracketZoom = 1;
 let sidebarCollapsed = false;
+let bracketEditMode = false;
+let bracketDirty = false;
+let bracketDraft = null;
+let selectedBracketSwapSlot = null;
 
 const elements = {
     pageShell: document.querySelector(".page-shell"),
@@ -91,6 +95,10 @@ const elements = {
     ballotList: document.getElementById("ballotList"),
     bracketTournamentSelect: document.getElementById("bracketTournamentSelect"),
     generateBracketButton: document.getElementById("generateBracketButton"),
+    bracketEditButton: document.getElementById("bracketEditButton"),
+    bracketSaveButton: document.getElementById("bracketSaveButton"),
+    exportBracketCsvButton: document.getElementById("exportBracketCsvButton"),
+    exportBracketExcelButton: document.getElementById("exportBracketExcelButton"),
     exportBracketPdfButton: document.getElementById("exportBracketPdfButton"),
     bracketZoomOutButton: document.getElementById("bracketZoomOutButton"),
     bracketZoomInButton: document.getElementById("bracketZoomInButton"),
@@ -304,45 +312,147 @@ function bindEvents() {
 
     if (elements.bracketTournamentSelect) {
         elements.bracketTournamentSelect.addEventListener("change", () => {
+            if (bracketEditMode && bracketDirty && !window.confirm("Discard the current unsaved bracket changes and switch tournaments?")) {
+                elements.bracketTournamentSelect.value = bracketTournamentId || "";
+                return;
+            }
+
+            bracketEditMode = false;
+            bracketDirty = false;
+            bracketDraft = null;
+            selectedBracketSwapSlot = null;
             bracketTournamentId = elements.bracketTournamentSelect.value || "";
             renderBracket();
         });
     }
 
-    if (elements.generateBracketButton) {
-        elements.generateBracketButton.addEventListener("click", () => {
-            if (!bracketTournamentId) {
-                setBracketStatus("Choose a saved tournament before generating a bracket.");
-                return;
+      if (elements.generateBracketButton) {
+          elements.generateBracketButton.addEventListener("click", () => {
+              if (!bracketTournamentId) {
+                  setBracketStatus("Choose a saved tournament before generating a bracket.");
+                  return;
             }
 
             const generated = generateBracketForTournament(bracketTournamentId);
-            if (!generated) {
-                return;
-            }
+              if (!generated) {
+                  return;
+              }
 
-            persist();
-            renderAll();
-            setBracketStatus("Bracket generated for the selected tournament.");
-        });
-    }
+              bracketEditMode = false;
+              bracketDirty = false;
+              bracketDraft = null;
+              selectedBracketSwapSlot = null;
+              persist();
+              renderAll();
+              setBracketStatus("Bracket generated for the selected tournament.");
+          });
+      }
 
-    if (elements.exportBracketPdfButton) {
-        elements.exportBracketPdfButton.addEventListener("click", () => {
-            const currentTournament = state.tournaments.find((item) => item.id === bracketTournamentId);
-            if (!currentTournament) {
+      if (elements.bracketEditButton) {
+          elements.bracketEditButton.addEventListener("click", () => {
+              const currentTournament = state.tournaments.find((item) => item.id === bracketTournamentId);
+              if (!currentTournament?.bracket) {
+                  setBracketStatus("Generate a bracket for the selected tournament before editing it.");
+                  return;
+              }
+
+              if (bracketEditMode) {
+                  if (bracketDirty && !window.confirm("Discard the current unsaved bracket changes?")) {
+                      return;
+                  }
+
+                  bracketEditMode = false;
+                  bracketDirty = false;
+                  bracketDraft = null;
+                  selectedBracketSwapSlot = null;
+                  renderBracket();
+                  setBracketStatus("Bracket edit mode closed.");
+                  return;
+              }
+
+              bracketEditMode = true;
+              bracketDirty = false;
+              bracketDraft = cloneState(currentTournament.bracket);
+              selectedBracketSwapSlot = null;
+              renderBracket();
+              setBracketStatus("Edit mode is on. Click one slot, then another slot to swap players. Save when you're done.");
+          });
+      }
+
+      if (elements.bracketSaveButton) {
+          elements.bracketSaveButton.addEventListener("click", () => {
+              const tournamentIndex = state.tournaments.findIndex((item) => item.id === bracketTournamentId);
+              if (tournamentIndex === -1 || !bracketEditMode || !bracketDraft) {
+                  setBracketStatus("Nothing to save yet.");
+                  return;
+              }
+
+              if (!bracketDirty) {
+                  setBracketStatus("No bracket changes to save.");
+                  return;
+              }
+
+              if (!window.confirm("Save the current bracket changes?")) {
+                  return;
+              }
+
+              state.tournaments[tournamentIndex].bracket = cloneState(bracketDraft);
+              bracketEditMode = false;
+              bracketDirty = false;
+              bracketDraft = null;
+              selectedBracketSwapSlot = null;
+              persist();
+              renderAll();
+              setBracketStatus("Bracket changes saved.");
+          });
+      }
+
+      if (elements.exportBracketPdfButton) {
+          elements.exportBracketPdfButton.addEventListener("click", () => {
+              const currentTournament = state.tournaments.find((item) => item.id === bracketTournamentId);
+              if (!currentTournament) {
                 setBracketStatus("Choose a saved tournament before exporting the bracket.");
                 return;
             }
-            if (!currentTournament.bracket) {
-                setBracketStatus("Generate the bracket before exporting it.");
-                return;
-            }
-            exportBracketPdf(currentTournament);
-        });
-    }
+              if (!currentTournament.bracket) {
+                  setBracketStatus("Generate the bracket before exporting it.");
+                  return;
+              }
+              exportBracketPdf(currentTournament);
+          });
+      }
 
-    if (elements.bracketZoomOutButton) {
+      if (elements.exportBracketCsvButton) {
+          elements.exportBracketCsvButton.addEventListener("click", () => {
+              const currentTournament = state.tournaments.find((item) => item.id === bracketTournamentId);
+              if (!currentTournament) {
+                  setBracketStatus("Choose a saved tournament before exporting the bracket.");
+                  return;
+              }
+              if (!currentTournament.bracket) {
+                  setBracketStatus("Generate the bracket before exporting it.");
+                  return;
+              }
+              exportBracketCsv(currentTournament);
+          });
+      }
+
+      if (elements.exportBracketExcelButton) {
+          elements.exportBracketExcelButton.addEventListener("click", () => {
+              const currentTournament = state.tournaments.find((item) => item.id === bracketTournamentId);
+              if (!currentTournament) {
+                  setBracketStatus("Choose a saved tournament before exporting the bracket.");
+                  return;
+              }
+              if (!currentTournament.bracket) {
+                  setBracketStatus("Generate the bracket before exporting it.");
+                  return;
+              }
+              exportBracketExcel(currentTournament);
+          });
+      }
+
+      if (elements.bracketZoomOutButton) {
         elements.bracketZoomOutButton.addEventListener("click", () => {
             bracketZoom = Math.max(0.6, Number((bracketZoom - 0.1).toFixed(2)));
             renderBracket();
@@ -882,11 +992,28 @@ function generateBracketForTournament(tournamentId) {
         return false;
     }
 
+    let bracket = null;
+    if (String(tournament.format || "").trim() === "Double Elimination") {
+        bracket = buildDoubleEliminationBracketData(players);
+    } else {
+        bracket = buildSingleEliminationBracketData(players);
+    }
+
+    state.tournaments[tournamentIndex] = {
+        ...tournament,
+        bracket,
+    };
+
+    return true;
+}
+
+function buildSingleEliminationBracketData(players, startSequence = 1) {
     const size = getBracketSize(players.length);
     const byes = size - players.length;
     const seedPositions = getSeedPositions(size);
     const arrangedPlayers = arrangePlayersForBracket(players, seedPositions, size);
     const seededSlots = Array.from({ length: size }, () => null);
+
     arrangedPlayers.forEach((player, index) => {
         const bracketPosition = seedPositions[index];
         if (!bracketPosition) {
@@ -903,6 +1030,7 @@ function generateBracketForTournament(tournamentId) {
             seed: index + 1,
         };
     });
+
     const rounds = [];
     let currentEntries = seededSlots.map((player) => (
         player
@@ -914,9 +1042,9 @@ function generateBracketForTournament(tournamentId) {
             }
             : { type: "bye", label: "BYE" }
     ));
-    let matchSequence = 1;
-
+    let matchSequence = startSequence;
     const roundCount = Math.log2(size);
+
     for (let roundIndex = 0; roundIndex < roundCount; roundIndex += 1) {
         const matches = [];
         const nextEntries = [];
@@ -958,16 +1086,158 @@ function generateBracketForTournament(tournamentId) {
         currentEntries = nextEntries;
     }
 
-    state.tournaments[tournamentIndex] = {
-        ...tournament,
-        bracket: {
-            size,
-            byes,
-            rounds,
-        },
+    return {
+        type: "single",
+        size,
+        byes,
+        rounds,
+        nextMatchSequence: matchSequence,
     };
+}
 
-    return true;
+function buildDoubleEliminationBracketData(players) {
+    const winners = buildSingleEliminationBracketData(players, 1);
+    const losers = buildLosersBracketData(winners.rounds, winners.nextMatchSequence);
+    const finals = buildDoubleEliminationFinalsData(winners, losers, losers.nextMatchSequence);
+
+    return {
+        type: "double",
+        size: winners.size,
+        byes: winners.byes,
+        winners: {
+            size: winners.size,
+            byes: winners.byes,
+            rounds: winners.rounds,
+        },
+        losers: {
+            size: Math.max(2, Math.ceil(winners.size / 2)),
+            byes: 0,
+            rounds: losers.rounds,
+        },
+        finals: {
+            size: 2,
+            byes: 0,
+            rounds: finals.rounds,
+        },
+        rounds: [
+            ...winners.rounds,
+            ...losers.rounds,
+            ...finals.rounds,
+        ],
+        nextMatchSequence: finals.nextMatchSequence,
+    };
+}
+
+function buildLosersBracketData(winnerRounds, startSequence) {
+    const rounds = [];
+    let matchSequence = startSequence;
+    const winnerRoundCount = winnerRounds.length;
+
+    if (winnerRoundCount <= 1) {
+        return { rounds, nextMatchSequence: matchSequence };
+    }
+
+    for (let losersRoundIndex = 0; losersRoundIndex < (winnerRoundCount - 1) * 2; losersRoundIndex += 1) {
+        const roundNumber = losersRoundIndex + 1;
+        const roundsRemaining = winnerRoundCount - 1 - Math.floor(losersRoundIndex / 2);
+        const matchCount = 2 ** Math.max(0, roundsRemaining - 1);
+        const matches = [];
+
+        for (let matchIndex = 0; matchIndex < matchCount; matchIndex += 1) {
+            const label = `Match ${matchSequence}`;
+            const displayLabel = `Losers Round ${roundNumber} - ${label}`;
+            const slotA = getLosersBracketSlotLabel(rounds, winnerRounds, losersRoundIndex, matchIndex, "A");
+            const slotB = getLosersBracketSlotLabel(rounds, winnerRounds, losersRoundIndex, matchIndex, "B");
+
+            matches.push({
+                label,
+                displayLabel,
+                slotA,
+                slotB,
+                seedA: "",
+                seedB: "",
+                byeA: false,
+                byeB: false,
+                isPlayable: true,
+            });
+
+            matchSequence += 1;
+        }
+
+        rounds.push({ matches });
+    }
+
+    return { rounds, nextMatchSequence: matchSequence };
+}
+
+function getLosersBracketSlotLabel(loserRounds, winnerRounds, losersRoundIndex, matchIndex, side) {
+    if (losersRoundIndex === 0) {
+        const winnerMatchIndex = matchIndex * 2 + (side === "A" ? 0 : 1);
+        const winnerMatch = winnerRounds[0]?.matches?.[winnerMatchIndex];
+        return winnerMatch?.isPlayable ? `Loser of ${winnerMatch.label}` : "TBD";
+    }
+
+    const previousRound = loserRounds[losersRoundIndex - 1]?.matches || [];
+    if (losersRoundIndex % 2 === 1) {
+        if (side === "A") {
+            const previousMatch = previousRound[matchIndex];
+            return previousMatch ? `Winner of ${previousMatch.label}` : "TBD";
+        }
+
+        const winnerRound = winnerRounds[Math.floor(losersRoundIndex / 2) + 1]?.matches || [];
+        const winnerMatch = winnerRound[matchIndex];
+        return winnerMatch?.isPlayable ? `Loser of ${winnerMatch.label}` : "TBD";
+    }
+
+    const previousMatchIndex = matchIndex * 2 + (side === "A" ? 0 : 1);
+    const previousMatch = previousRound[previousMatchIndex];
+    return previousMatch ? `Winner of ${previousMatch.label}` : "TBD";
+}
+
+function buildDoubleEliminationFinalsData(winners, losers, startSequence) {
+    const rounds = [];
+    let matchSequence = startSequence;
+    const winnersFinal = winners.rounds[winners.rounds.length - 1]?.matches?.[0];
+    const losersFinal = losers.rounds[losers.rounds.length - 1]?.matches?.[0];
+
+    if (!winnersFinal || !losersFinal) {
+        return { rounds, nextMatchSequence: matchSequence };
+    }
+
+    const grandFinalLabel = `Match ${matchSequence}`;
+    rounds.push({
+        matches: [{
+            label: grandFinalLabel,
+            displayLabel: `Grand Final - ${grandFinalLabel}`,
+            slotA: `Winner of ${winnersFinal.label}`,
+            slotB: `Winner of ${losersFinal.label}`,
+            seedA: "",
+            seedB: "",
+            byeA: false,
+            byeB: false,
+            isPlayable: true,
+        }],
+    });
+    matchSequence += 1;
+
+    const resetLabel = `Match ${matchSequence}`;
+    rounds.push({
+        matches: [{
+            label: resetLabel,
+            displayLabel: `Bracket Reset - ${resetLabel}`,
+            slotA: `Loser of ${grandFinalLabel}`,
+            slotB: `Winner of ${grandFinalLabel}`,
+            seedA: "",
+            seedB: "",
+            byeA: false,
+            byeB: false,
+            isPlayable: true,
+            isOptional: true,
+        }],
+    });
+    matchSequence += 1;
+
+    return { rounds, nextMatchSequence: matchSequence };
 }
 
 function renderPlayersSummary() {
@@ -1118,20 +1388,22 @@ function getBracketRoundMetrics(roundCount) {
     return metrics;
 }
 
-function renderBracketSvg(bracket, tournament) {
+function renderBracketSvg(bracket, tournament, options = {}) {
     const layout = getBracketSvgLayout(bracket.rounds);
     const finalRound = bracket.rounds[bracket.rounds.length - 1];
     const championLabel = finalRound?.matches?.[0]
         ? `Winner of ${finalRound.matches[0].label}`
         : "Champion";
-    const title = `${tournament.name} - ${tournament.category}`;
+    const title = options.title || `${tournament.name} - ${tournament.category}`;
+    const sectionKey = options.sectionKey || "main";
+    const footerText = options.footerText || "Bracket preview";
 
     const parts = [
-        `<div class="bracket-svg-wrap" style="--bracket-scale:${bracketZoom};">`,
+        `<div class="bracket-svg-wrap" style="--bracket-scale:${bracketZoom}; width:${layout.width * bracketZoom}px; height:${layout.height * bracketZoom}px;">`,
         `<svg class="bracket-svg" width="${layout.width}" height="${layout.height}" viewBox="0 0 ${layout.width} ${layout.height}" role="img" aria-label="${escapeHtml(title)} bracket">`,
         `<rect x="0" y="0" width="${layout.width}" height="${layout.height}" rx="24" fill="#081321"></rect>`,
         `<text x="${layout.paddingX}" y="34" class="svg-title">${escapeXml(title)}</text>`,
-        `<text x="${layout.paddingX}" y="${layout.height - 14}" class="svg-match-label">Bracket preview</text>`,
+        `<text x="${layout.paddingX}" y="${layout.height - 14}" class="svg-match-label">${escapeXml(footerText)}</text>`,
     ];
 
     bracket.rounds.forEach((round, roundIndex) => {
@@ -1152,8 +1424,8 @@ function renderBracketSvg(bracket, tournament) {
             parts.push(
                 `<rect x="${matchBox.x}" y="${matchBox.y}" width="${matchBox.width}" height="${matchBox.height}" rx="18" class="${match.isPlayable ? "svg-match-box" : "svg-match-box svg-match-box-auto"}"></rect>`,
                 `<text x="${matchBox.x + 14}" y="${matchBox.y + 18}" class="${match.isPlayable ? "svg-match-label" : "svg-match-label svg-match-label-auto"}">${escapeXml(match.displayLabel || match.label)}</text>`,
-                renderSvgSlot(matchBox.x + 12, topSlotY, layout, match.seedA, match.slotA, match.byeA),
-                renderSvgSlot(matchBox.x + 12, bottomSlotY, layout, match.seedB, match.slotB, match.byeB)
+                renderSvgSlot(matchBox.x + 12, topSlotY, layout, match.seedA, match.slotA, match.byeA, roundIndex, matchIndex, "slotA", sectionKey),
+                renderSvgSlot(matchBox.x + 12, bottomSlotY, layout, match.seedB, match.slotB, match.byeB, roundIndex, matchIndex, "slotB", sectionKey)
             );
 
             if (roundIndex < bracket.rounds.length - 1) {
@@ -1187,14 +1459,27 @@ function renderBracketSvg(bracket, tournament) {
     return parts.join("");
 }
 
-function renderSvgSlot(x, y, layout, seed, label, bye) {
+function renderSvgSlot(x, y, layout, seed, label, bye, roundIndex, matchIndex, field, sectionKey = "main") {
     const slotLabel = bye ? addByeNoteToLabel(label || "TBD") : (label || "TBD");
+    const isSelected = isSelectedBracketSwapSlot(sectionKey, roundIndex, matchIndex, field);
+    const slotClass = isSelected ? "svg-slot svg-slot-editable svg-slot-selected" : "svg-slot svg-slot-editable";
+    const textClass = isSelected ? "svg-slot-text svg-slot-editable svg-slot-text-selected" : "svg-slot-text svg-slot-editable";
     return [
-        `<rect x="${x}" y="${y}" width="${layout.slotWidth}" height="${layout.slotHeight}" rx="12" class="svg-slot"></rect>`,
+        `<rect x="${x}" y="${y}" width="${layout.slotWidth}" height="${layout.slotHeight}" rx="12" class="${slotClass}" data-bracket-slot="${escapeHtml(field || "")}" data-bracket-section="${escapeHtml(sectionKey)}" data-round-index="${roundIndex}" data-match-index="${matchIndex}"></rect>`,
         `<rect x="${x + 8}" y="${y + 6}" width="${layout.seedWidth}" height="${layout.slotHeight - 12}" rx="8" class="svg-seed-box"></rect>`,
         `<text x="${x + 8 + layout.seedWidth / 2}" y="${y + layout.slotHeight / 2 + 4}" text-anchor="middle" class="svg-seed-text">${escapeXml(seed || "-")}</text>`,
-        `<text x="${x + 8 + layout.seedWidth + 12}" y="${y + layout.slotHeight / 2 + 4}" class="svg-slot-text">${escapeXml(slotLabel)}</text>`,
+        `<text x="${x + 8 + layout.seedWidth + 12}" y="${y + layout.slotHeight / 2 + 4}" class="${textClass}" data-bracket-slot="${escapeHtml(field || "")}" data-bracket-section="${escapeHtml(sectionKey)}" data-round-index="${roundIndex}" data-match-index="${matchIndex}">${escapeXml(slotLabel)}</text>`,
     ].join("");
+}
+
+function isSelectedBracketSwapSlot(sectionKey, roundIndex, matchIndex, field) {
+    return Boolean(
+        selectedBracketSwapSlot
+        && selectedBracketSwapSlot.sectionKey === sectionKey
+        && selectedBracketSwapSlot.roundIndex === roundIndex
+        && selectedBracketSwapSlot.matchIndex === matchIndex
+        && selectedBracketSwapSlot.field === field
+    );
 }
 
 function getSvgMatchBox(layout, roundIndex, matchIndex) {
@@ -1209,8 +1494,8 @@ function getSvgMatchBox(layout, roundIndex, matchIndex) {
 }
 
 function getBracketSvgLayout(rounds) {
-    const paddingX = 28;
-    const paddingBottom = 34;
+    const paddingX = 44;
+    const paddingBottom = 72;
     const headerHeight = 64;
     const titleY = 58;
     const roundTitleOffset = 24;
@@ -1233,8 +1518,13 @@ function getBracketSvgLayout(rounds) {
     const championY = headerHeight + roundTitleOffset + bodyHeight / 2 - championHeight / 2;
     const connectorReach = 18;
     const columnWidth = 320;
-    const width = paddingX * 2 + rounds.length * columnWidth + championWidth;
-    const height = Math.max(championY + championHeight + paddingBottom, headerHeight + roundTitleOffset + bodyHeight + paddingBottom);
+    const rightSafety = 56;
+    const heightSafety = 36;
+    const width = paddingX * 2 + rounds.length * columnWidth + championWidth + rightSafety;
+    const height = Math.max(
+        championY + championHeight + paddingBottom + heightSafety,
+        headerHeight + roundTitleOffset + bodyHeight + paddingBottom + heightSafety
+    );
 
     return {
         paddingX,
@@ -1264,7 +1554,7 @@ function exportBracketPdf(tournament) {
         return;
     }
 
-    const bracketMarkup = renderBracketSvg(bracket, tournament);
+    const bracketMarkup = renderBracketMarkup(bracket, tournament);
     const exportHtml = `
         <!DOCTYPE html>
         <html lang="en">
@@ -1337,6 +1627,237 @@ function exportBracketPdf(tournament) {
     exportLink.remove();
     setTimeout(() => URL.revokeObjectURL(exportUrl), 30000);
     setBracketStatus("PDF view opened. Use Save as PDF in the print dialog.");
+}
+
+function exportBracketCsv(tournament) {
+    const rows = getBracketExportRows(tournament);
+    const headers = ["Section", "Round", "Match", "Player A", "Player B", "Seed A", "Seed B", "Player A Note", "Player B Note"];
+    const csv = [headers, ...rows]
+        .map((row) => row.map(csvEscape).join(","))
+        .join("\r\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${slugify(`${tournament.name}-${tournament.category}`)}-bracket.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setBracketStatus("Bracket exported as CSV.");
+}
+
+function exportBracketExcel(tournament) {
+    const workbook = `
+        <html xmlns:o="urn:schemas-microsoft-com:office:office"
+              xmlns:x="urn:schemas-microsoft-com:office:excel"
+              xmlns="http://www.w3.org/TR/REC-html40">
+        <head>
+            <meta charset="utf-8">
+            <!--[if gte mso 9]>
+            <xml>
+                <x:ExcelWorkbook>
+                    <x:ExcelWorksheets>
+                        <x:ExcelWorksheet>
+                            <x:Name>Bracket</x:Name>
+                            <x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions>
+                        </x:ExcelWorksheet>
+                    </x:ExcelWorksheets>
+                </x:ExcelWorkbook>
+            </xml>
+            <![endif]-->
+            <style>
+                body { font-family: Arial, sans-serif; }
+                .sheet-title { font-size: 18px; font-weight: 700; margin-bottom: 12px; }
+                .section-title { font-size: 14px; font-weight: 700; margin: 18px 0 8px; }
+                .bracket-sheet { border-collapse: separate; border-spacing: 8px 8px; }
+                .bracket-sheet td { min-width: 190px; vertical-align: top; padding: 0; }
+                .round-title { font-size: 12px; font-weight: 700; color: #516176; text-transform: uppercase; padding-bottom: 4px; }
+                .pairing-cell { }
+                .pairing-wrap { min-width: 190px; min-height: 76px; border: 2px solid transparent; border-radius: 12px; padding: 4px; }
+                .pairing-wrap.pairing-active { border-color: #ff914d; background: #fff4eb; }
+                .pairing-wrap.pairing-active.pairing-next { border-right-color: #d96f2f; }
+                .pairing-wrap.pairing-active.pairing-fed { border-left-color: #d96f2f; }
+                .match-cell { position: relative; }
+                .match-cell.connector-right::after {
+                    content: "";
+                    position: absolute;
+                    top: 50%;
+                    right: -8px;
+                    width: 8px;
+                    border-top: 2px solid #ff914d;
+                }
+                .match-cell.connector-left::before {
+                    content: "";
+                    position: absolute;
+                    top: 50%;
+                    left: -8px;
+                    width: 8px;
+                    border-top: 2px solid #ff914d;
+                }
+                .match-card { border: 2px solid #ff914d; border-radius: 12px; padding: 8px; background: #fff7f1; }
+                .match-label { font-size: 11px; font-weight: 700; color: #7b421d; margin-bottom: 6px; text-transform: uppercase; }
+                .slot { border: 1px solid #f0c5a9; border-radius: 8px; padding: 6px 8px; margin-bottom: 6px; background: #ffffff; font-size: 12px; color: #1b2430; }
+                .slot:last-child { margin-bottom: 0; }
+                .empty-cell { min-width: 190px; height: 76px; }
+            </style>
+        </head>
+        <body>
+            ${buildBracketExcelLayoutMarkup(tournament)}
+        </body>
+        </html>
+    `;
+
+    const blob = new Blob(["\ufeff", workbook], { type: "application/vnd.ms-excel;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${slugify(`${tournament.name}-${tournament.category}`)}-bracket.xls`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setBracketStatus("Bracket exported as Excel.");
+}
+
+function buildBracketExcelLayoutMarkup(tournament) {
+    const bracket = tournament?.bracket;
+    if (!bracket) {
+        return "";
+    }
+
+    const sections = bracket.type === "double"
+        ? [
+            { title: "Winners Bracket", rounds: bracket.winners?.rounds || [] },
+            { title: "Losers Bracket", rounds: bracket.losers?.rounds || [] },
+            { title: "Finals", rounds: bracket.finals?.rounds || [] },
+        ]
+        : [
+            { title: "Main Bracket", rounds: bracket.rounds || [] },
+        ];
+
+    return [
+        `<div class="sheet-title">${escapeHtml(`${tournament.name} - ${tournament.category}`)}</div>`,
+        ...sections.map((section) => buildBracketExcelSectionMarkup(section.title, section.rounds)),
+    ].join("");
+}
+
+function buildBracketExcelSectionMarkup(sectionTitle, rounds) {
+    if (!rounds.length) {
+        return "";
+    }
+
+    const totalRows = getBracketExcelRowCount(rounds);
+    const grid = Array.from({ length: totalRows }, () => Array.from({ length: rounds.length }, () => ""));
+
+    rounds.forEach((round, roundIndex) => {
+        round.matches.forEach((match, matchIndex) => {
+            const rowIndex = getBracketExcelTopRow(roundIndex, matchIndex);
+            if (rowIndex >= totalRows) {
+                return;
+            }
+            const connectorClasses = [
+                "match-cell",
+                roundIndex > 0 ? "connector-left" : "",
+                roundIndex < rounds.length - 1 ? "connector-right" : "",
+            ].filter(Boolean).join(" ");
+            grid[rowIndex][roundIndex] = `
+                <div class="${connectorClasses}">
+                    <div class="match-card">
+                    <div class="match-label">${escapeHtml(match.displayLabel || match.label || "Match")}</div>
+                    <div class="slot">${escapeHtml(formatBracketExcelSlot(match.slotA, match.seedA, match.byeA))}</div>
+                    <div class="slot">${escapeHtml(formatBracketExcelSlot(match.slotB, match.seedB, match.byeB))}</div>
+                    </div>
+                </div>
+            `;
+        });
+    });
+
+    return `
+        <div class="section-title">${escapeHtml(sectionTitle)}</div>
+        <table class="bracket-sheet">
+            <thead>
+                <tr>
+                    ${rounds.map((_, roundIndex) => `<td class="round-title">${escapeHtml(getBracketRoundLabel(roundIndex, rounds.length))}</td>`).join("")}
+                </tr>
+            </thead>
+            <tbody>
+                ${grid.map((row) => `
+                    <tr>
+                        ${row.map((cell, cellIndex) => {
+                            const wrapClasses = [
+                                "pairing-wrap",
+                                cell ? "pairing-active" : "",
+                                cell && cellIndex < row.length - 1 ? "pairing-next" : "",
+                                cell && cellIndex > 0 ? "pairing-fed" : "",
+                            ].filter(Boolean).join(" ");
+                            return `<td class="pairing-cell"><div class="${wrapClasses}">${cell || '<div class="empty-cell"></div>'}</div></td>`;
+                        }).join("")}
+                    </tr>
+                `).join("")}
+            </tbody>
+        </table>
+    `;
+}
+
+function getBracketExcelRowCount(rounds) {
+    let maxRow = 1;
+    rounds.forEach((round, roundIndex) => {
+        round.matches.forEach((_, matchIndex) => {
+            const rowIndex = getBracketExcelTopRow(roundIndex, matchIndex);
+            if (rowIndex > maxRow) {
+                maxRow = rowIndex;
+            }
+        });
+    });
+    return maxRow + 1;
+}
+
+function getBracketExcelTopRow(roundIndex, matchIndex) {
+    return (2 ** roundIndex - 1) + matchIndex * (2 ** (roundIndex + 1));
+}
+
+function formatBracketExcelSlot(label, seed, bye) {
+    const prefix = seed ? `[${seed}] ` : "";
+    const suffix = bye ? " (BYE)" : "";
+    return `${prefix}${String(label || "TBD")}${suffix}`;
+}
+
+function getBracketExportRows(tournament) {
+    const bracket = tournament?.bracket;
+    if (!bracket) {
+        return [];
+    }
+
+    if (bracket.type === "double") {
+        return [
+            ...flattenBracketSectionRows("Winners", bracket.winners?.rounds || []),
+            ...flattenBracketSectionRows("Losers", bracket.losers?.rounds || []),
+            ...flattenBracketSectionRows("Finals", bracket.finals?.rounds || []),
+        ];
+    }
+
+    return flattenBracketSectionRows("Main", bracket.rounds || []);
+}
+
+function flattenBracketSectionRows(sectionLabel, rounds) {
+    const totalRounds = rounds.length;
+    const rows = [];
+
+    rounds.forEach((round, roundIndex) => {
+        round.matches.forEach((match) => {
+            rows.push([
+                sectionLabel,
+                getBracketRoundLabel(roundIndex, totalRounds),
+                String(match.label || ""),
+                String(match.slotA || ""),
+                String(match.slotB || ""),
+                String(match.seedA || ""),
+                String(match.seedB || ""),
+                match.byeA ? "BYE" : "",
+                match.byeB ? "BYE" : "",
+            ]);
+        });
+    });
+
+    return rows;
 }
 
 function renderBallotTournamentOptions() {
@@ -1444,10 +1965,19 @@ function renderBracket() {
     if (elements.bracketZoomLabel) {
         elements.bracketZoomLabel.textContent = `${Math.round(bracketZoom * 100)}%`;
     }
+    if (elements.bracketEditButton) {
+        elements.bracketEditButton.classList.toggle("active", bracketEditMode);
+        elements.bracketEditButton.textContent = bracketEditMode ? "Cancel edit" : "Edit bracket";
+    }
+    if (elements.bracketSaveButton) {
+        elements.bracketSaveButton.disabled = !bracketEditMode || !bracketDirty;
+    }
 
     const currentTournament = state.tournaments.find((item) => item.id === bracketTournamentId);
     const bracketPlayers = getBracketPlayers(currentTournament);
-    const bracket = currentTournament?.bracket || null;
+    const bracket = bracketEditMode && bracketDraft && currentTournament?.id === bracketTournamentId
+        ? bracketDraft
+        : (currentTournament?.bracket || null);
 
     elements.bracketPlayerCount.textContent = String(bracketPlayers.length);
     elements.bracketSizeCount.textContent = String(bracket?.size || 0);
@@ -1468,11 +1998,432 @@ function renderBracket() {
 
     try {
         setBracketStatus(`Showing bracket for ${currentTournament.name} - ${currentTournament.category}.`);
-        elements.bracketRounds.innerHTML = renderBracketSvg(bracket, currentTournament);
+        elements.bracketRounds.innerHTML = renderBracketMarkup(bracket, currentTournament);
+        bindBracketSvgEditing();
     } catch (error) {
         elements.bracketRounds.innerHTML = '<div class="empty-state">Unable to render the bracket preview right now.</div>';
         setBracketStatus(`Bracket render error: ${error instanceof Error ? error.message : String(error)}`);
     }
+}
+
+function renderBracketMarkup(bracket, tournament) {
+    if (bracket?.type === "double") {
+        return renderDoubleEliminationBracket(bracket, tournament);
+    }
+    return renderBracketSvg(bracket, tournament, {
+        sectionKey: "main",
+    });
+}
+
+function renderDoubleEliminationBracket(bracket, tournament) {
+    return [
+        '<div class="double-bracket-layout">',
+        '<section class="double-bracket-panel">',
+        '<div class="double-bracket-heading"><h3>Winners Bracket</h3><p>Primary knockout path</p></div>',
+        renderBracketSvg(bracket.winners, tournament, {
+            sectionKey: "winners",
+            title: `${tournament.name} - Winners Bracket`,
+            footerText: "Double elimination - winners side",
+        }),
+        '</section>',
+        '<section class="double-bracket-panel">',
+        '<div class="double-bracket-heading"><h3>Losers Bracket</h3><p>Second-chance path</p></div>',
+        renderBracketSvg(bracket.losers, tournament, {
+            sectionKey: "losers",
+            title: `${tournament.name} - Losers Bracket`,
+            footerText: "Double elimination - losers side",
+        }),
+        '</section>',
+        '<section class="double-bracket-panel finals-panel">',
+        '<div class="double-bracket-heading"><h3>Grand Final</h3><p>Includes reset match if needed</p></div>',
+        renderBracketSvg(bracket.finals, tournament, {
+            sectionKey: "finals",
+            title: `${tournament.name} - Grand Final`,
+            footerText: "Double elimination - finals",
+        }),
+        '</section>',
+        '</div>',
+    ].join("");
+}
+
+function renderMirroredSingleEliminationBracket(bracket, tournament) {
+    if (!bracket?.rounds?.length || bracket.rounds.length < 2) {
+        return renderBracketSvg(bracket, tournament, {
+            sectionKey: "main",
+        });
+    }
+
+    const sideRounds = bracket.rounds.slice(0, -1);
+    const finalRound = bracket.rounds[bracket.rounds.length - 1];
+    const firstRoundSideMatches = Math.max(1, Math.ceil((sideRounds[0]?.matches?.length || 2) / 2));
+    const layout = getMirroredBracketLayout(sideRounds.length, firstRoundSideMatches);
+    const title = `${tournament.name} - ${tournament.category}`;
+    const parts = [
+        `<div class="bracket-svg-wrap" style="--bracket-scale:${bracketZoom}; width:${layout.width * bracketZoom}px; height:${layout.height * bracketZoom}px;">`,
+        `<svg class="bracket-svg" width="${layout.width}" height="${layout.height}" viewBox="0 0 ${layout.width} ${layout.height}" role="img" aria-label="${escapeHtml(title)} bracket">`,
+        `<rect x="0" y="0" width="${layout.width}" height="${layout.height}" rx="24" fill="#081321"></rect>`,
+        `<text x="${layout.width / 2}" y="36" text-anchor="middle" class="svg-title">${escapeXml(title)}</text>`,
+    ];
+
+    sideRounds.forEach((round, roundIndex) => {
+        const sideMatchCount = Math.ceil(round.matches.length / 2);
+        const leftMatches = round.matches.slice(0, sideMatchCount);
+        const rightMatches = round.matches.slice(sideMatchCount);
+
+        leftMatches.forEach((match, matchIndex) => {
+            renderMirroredBracketMatch(parts, layout, {
+                match,
+                roundIndex,
+                matchIndex,
+                side: "left",
+                sectionKey: "main",
+                totalSideRounds: sideRounds.length,
+                isTowardFinal: roundIndex === sideRounds.length - 1,
+            });
+        });
+
+        rightMatches.forEach((match, matchIndex) => {
+            renderMirroredBracketMatch(parts, layout, {
+                match,
+                roundIndex,
+                matchIndex,
+                side: "right",
+                sectionKey: "main",
+                totalSideRounds: sideRounds.length,
+                isTowardFinal: roundIndex === sideRounds.length - 1,
+            });
+        });
+    });
+
+    const finalMatch = finalRound?.matches?.[0];
+    if (finalMatch) {
+        const finalBox = getMirroredFinalMatchBox(layout);
+        const topSlotY = finalBox.y + layout.labelHeight;
+        const bottomSlotY = topSlotY + layout.slotHeight + layout.slotGap;
+        const leftJoinX = finalBox.x;
+        const rightJoinX = finalBox.x + finalBox.width;
+        const topMidY = topSlotY + layout.slotHeight / 2;
+        const bottomMidY = bottomSlotY + layout.slotHeight / 2;
+        const mergeMidY = (topMidY + bottomMidY) / 2;
+
+        parts.push(
+            `<rect x="${finalBox.x}" y="${finalBox.y}" width="${finalBox.width}" height="${finalBox.height}" rx="18" class="svg-match-box"></rect>`,
+            `<text x="${finalBox.x + 14}" y="${finalBox.y + 18}" class="svg-match-label">${escapeXml(finalMatch.displayLabel || finalMatch.label)}</text>`,
+            renderSvgSlot(finalBox.x + 12, topSlotY, layout, finalMatch.seedA, getCompactBracketSlotLabel(finalMatch.slotA), finalMatch.byeA, bracket.rounds.length - 1, 0, "slotA", "main"),
+            renderSvgSlot(finalBox.x + 12, bottomSlotY, layout, finalMatch.seedB, getCompactBracketSlotLabel(finalMatch.slotB), finalMatch.byeB, bracket.rounds.length - 1, 0, "slotB", "main")
+        );
+
+        const leftSemi = getMirroredMatchBox(layout, sideRounds.length - 1, 0, "left");
+        const rightSemi = getMirroredMatchBox(layout, sideRounds.length - 1, 0, "right");
+        const leftSourceY = leftSemi.y + layout.labelHeight + layout.slotHeight + layout.slotGap / 2;
+        const rightSourceY = rightSemi.y + layout.labelHeight + layout.slotHeight + layout.slotGap / 2;
+
+        parts.push(
+            `<path d="M ${leftSemi.x + leftSemi.width} ${leftSourceY} L ${finalBox.x - 24} ${leftSourceY} L ${finalBox.x - 24} ${mergeMidY} L ${leftJoinX} ${mergeMidY}" class="svg-connector"></path>`,
+            `<path d="M ${rightSemi.x} ${rightSourceY} L ${finalBox.x + finalBox.width + 24} ${rightSourceY} L ${finalBox.x + finalBox.width + 24} ${mergeMidY} L ${rightJoinX} ${mergeMidY}" class="svg-connector"></path>`
+        );
+
+        const championX = finalBox.x + (finalBox.width - layout.championWidth) / 2;
+        parts.push(
+            `<rect x="${championX}" y="${layout.championY}" width="${layout.championWidth}" height="${layout.championHeight}" rx="22" class="svg-champion-box"></rect>`,
+            `<text x="${championX + 16}" y="${layout.championY + 24}" class="svg-match-label">Winner</text>`,
+            `<text x="${championX + 16}" y="${layout.championY + 56}" class="svg-champion-name">${escapeXml(`Winner of ${finalMatch.label}`)}</text>`,
+            `<path d="M ${finalBox.x + finalBox.width / 2} ${finalBox.y + finalBox.height} L ${finalBox.x + finalBox.width / 2} ${layout.championY - 16} L ${championX + layout.championWidth / 2} ${layout.championY - 16} L ${championX + layout.championWidth / 2} ${layout.championY}" class="svg-connector"></path>`
+        );
+    }
+
+    parts.push(`</svg>`, `</div>`);
+    return parts.join("");
+}
+
+function renderMirroredBracketMatch(parts, layout, options) {
+    const {
+        match,
+        roundIndex,
+        matchIndex,
+        side,
+        sectionKey,
+        totalSideRounds,
+        isTowardFinal,
+    } = options;
+    const matchBox = getMirroredMatchBox(layout, roundIndex, matchIndex, side);
+    const topSlotY = matchBox.y + layout.labelHeight;
+    const bottomSlotY = topSlotY + layout.slotHeight + layout.slotGap;
+    const topMidY = topSlotY + layout.slotHeight / 2;
+    const bottomMidY = bottomSlotY + layout.slotHeight / 2;
+    const mergeMidY = (topMidY + bottomMidY) / 2;
+
+    if (!match.isPlayable) {
+        return;
+    }
+
+    parts.push(
+        `<rect x="${matchBox.x}" y="${matchBox.y}" width="${matchBox.width}" height="${matchBox.height}" rx="18" class="svg-match-box"></rect>`,
+        `<text x="${matchBox.x + 14}" y="${matchBox.y + 18}" class="svg-match-label">${escapeXml(match.displayLabel || match.label)}</text>`,
+        renderSvgSlot(matchBox.x + 12, topSlotY, layout, match.seedA, getCompactBracketSlotLabel(match.slotA), match.byeA, roundIndex, matchIndex, "slotA", sectionKey),
+        renderSvgSlot(matchBox.x + 12, bottomSlotY, layout, match.seedB, getCompactBracketSlotLabel(match.slotB), match.byeB, roundIndex, matchIndex, "slotB", sectionKey)
+    );
+
+    if (side === "left") {
+        const mergeX = matchBox.x + matchBox.width + layout.connectorReach;
+        parts.push(
+            `<path d="M ${matchBox.x + matchBox.width} ${topMidY} L ${mergeX} ${topMidY} L ${mergeX} ${bottomMidY} L ${matchBox.x + matchBox.width} ${bottomMidY}" class="svg-connector"></path>`
+        );
+
+        if (!isTowardFinal) {
+            const nextMatchBox = getMirroredMatchBox(layout, roundIndex + 1, Math.floor(matchIndex / 2), side);
+            const nextCenterY = nextMatchBox.y + layout.labelHeight + layout.slotHeight + layout.slotGap / 2;
+            parts.push(
+                `<path d="M ${mergeX} ${mergeMidY} L ${nextMatchBox.x - 18} ${mergeMidY} L ${nextMatchBox.x - 18} ${nextCenterY} L ${nextMatchBox.x} ${nextCenterY}" class="svg-connector"></path>`
+            );
+        }
+    } else {
+        const mergeX = matchBox.x - layout.connectorReach;
+        parts.push(
+            `<path d="M ${matchBox.x} ${topMidY} L ${mergeX} ${topMidY} L ${mergeX} ${bottomMidY} L ${matchBox.x} ${bottomMidY}" class="svg-connector"></path>`
+        );
+
+        if (!isTowardFinal) {
+            const nextMatchBox = getMirroredMatchBox(layout, roundIndex + 1, Math.floor(matchIndex / 2), side);
+            const nextCenterY = nextMatchBox.y + layout.labelHeight + layout.slotHeight + layout.slotGap / 2;
+            parts.push(
+                `<path d="M ${mergeX} ${mergeMidY} L ${nextMatchBox.x + nextMatchBox.width + 18} ${mergeMidY} L ${nextMatchBox.x + nextMatchBox.width + 18} ${nextCenterY} L ${nextMatchBox.x + nextMatchBox.width} ${nextCenterY}" class="svg-connector"></path>`
+            );
+        }
+    }
+}
+
+function getMirroredBracketLayout(sideRoundCount, firstRoundSideMatches) {
+    const outerPaddingX = 112;
+    const headerHeight = 56;
+    const footerHeight = 220;
+    const matchWidth = 182;
+    const matchHeight = 82;
+    const labelHeight = 18;
+    const slotHeight = 20;
+    const slotGap = 6;
+    const slotWidth = matchWidth - 24;
+    const seedWidth = 20;
+    const connectorReach = 10;
+    const centerGap = 28;
+    const columnWidth = 220;
+    const baseGap = 8;
+    const baseStep = matchHeight + baseGap;
+    const firstCenterY = headerHeight + matchHeight / 2;
+    const championWidth = 156;
+    const championHeight = 58;
+    const width = outerPaddingX * 2 + sideRoundCount * columnWidth * 2 + centerGap + matchWidth + connectorReach * 8;
+    const finalX = (width - matchWidth) / 2;
+    const sideMatchBottom = getMirroredBracketMaxBottom(
+        sideRoundCount,
+        firstRoundSideMatches,
+        firstCenterY,
+        baseStep,
+        matchHeight
+    );
+    const sideTopY = headerHeight;
+    const sideBottomY = Math.max(sideMatchBottom, sideTopY + matchHeight);
+    const sideBodyHeight = sideBottomY - sideTopY;
+    const finalY = sideTopY + sideBodyHeight / 2 - matchHeight / 2;
+    const championY = finalY + matchHeight + 36;
+    const height = championY + championHeight + footerHeight;
+
+    return {
+        paddingX: outerPaddingX,
+        width,
+        height,
+        headerHeight,
+        matchWidth,
+        matchHeight,
+        labelHeight,
+        slotHeight,
+        slotGap,
+        slotWidth,
+        seedWidth,
+        connectorReach,
+        columnWidth,
+        centerGap,
+        baseStep,
+        firstCenterY,
+        finalX,
+        finalY,
+        championWidth,
+        championHeight,
+        championY,
+    };
+}
+
+function getMirroredBracketMaxBottom(sideRoundCount, firstRoundSideMatches, firstCenterY, baseStep, matchHeight) {
+    let maxBottom = firstCenterY + matchHeight / 2;
+
+    for (let roundIndex = 0; roundIndex < sideRoundCount; roundIndex += 1) {
+        const matchCount = Math.max(1, Math.ceil(firstRoundSideMatches / (2 ** roundIndex)));
+        const lastMatchIndex = matchCount - 1;
+        const step = baseStep * (2 ** roundIndex);
+        const centerY = firstCenterY
+            + ((2 ** roundIndex) - 1) * baseStep / 2
+            + lastMatchIndex * step;
+        const bottom = centerY + matchHeight / 2;
+        if (bottom > maxBottom) {
+            maxBottom = bottom;
+        }
+    }
+
+    return maxBottom;
+}
+
+function getCompactBracketSlotLabel(label) {
+    const text = String(label || "").trim();
+    if (!text) {
+        return "TBD";
+    }
+
+    const maxLength = 18;
+    if (text.length <= maxLength) {
+        return text;
+    }
+
+    return `${text.slice(0, maxLength - 1).trim()}…`;
+}
+
+function getMirroredMatchBox(layout, roundIndex, matchIndex, side) {
+    const step = layout.baseStep * (2 ** roundIndex);
+    const centerY = layout.firstCenterY + ((2 ** roundIndex) - 1) * layout.baseStep / 2 + matchIndex * step;
+    const inwardOffset = roundIndex * layout.columnWidth;
+    const x = side === "left"
+        ? layout.paddingX + inwardOffset
+        : layout.width - layout.paddingX - layout.matchWidth - inwardOffset;
+
+    return {
+        x,
+        y: centerY - layout.matchHeight / 2,
+        width: layout.matchWidth,
+        height: layout.matchHeight,
+    };
+}
+
+function getMirroredFinalMatchBox(layout) {
+    return {
+        x: layout.finalX,
+        y: layout.finalY,
+        width: layout.matchWidth,
+        height: layout.matchHeight,
+    };
+}
+
+function bindBracketSvgEditing() {
+    if (!elements.bracketRounds) {
+        return;
+    }
+
+    elements.bracketRounds.querySelectorAll("[data-bracket-slot]").forEach((node) => {
+        node.addEventListener("click", handleBracketSvgEdit);
+    });
+}
+
+function handleBracketSvgEdit(event) {
+    const target = event.target;
+    const field = target.dataset.bracketSlot;
+    const sectionKey = target.dataset.bracketSection || "main";
+    const roundIndex = Number(target.dataset.roundIndex);
+    const matchIndex = Number(target.dataset.matchIndex);
+    const currentTournament = state.tournaments.find((item) => item.id === bracketTournamentId);
+
+    if (!field || Number.isNaN(roundIndex) || Number.isNaN(matchIndex) || !currentTournament) {
+        return;
+    }
+
+    if (!bracketEditMode || !bracketDraft) {
+        setBracketStatus("Click Edit bracket to start swapping players.");
+        return;
+    }
+
+    const sectionBracket = getBracketEditSection(bracketDraft, sectionKey);
+    const match = sectionBracket?.rounds?.[roundIndex]?.matches?.[matchIndex];
+    if (!match || !sectionBracket) {
+        return;
+    }
+
+    handleBracketSlotSwap(sectionBracket, sectionKey, field, roundIndex, matchIndex);
+}
+
+function getBracketEditSection(bracket, sectionKey) {
+    if (!bracket) {
+        return null;
+    }
+    if (sectionKey === "winners") {
+        return bracket.winners || null;
+    }
+    if (sectionKey === "losers") {
+        return bracket.losers || null;
+    }
+    if (sectionKey === "finals") {
+        return bracket.finals || null;
+    }
+    return bracket;
+}
+
+function handleBracketSlotSwap(bracket, sectionKey, field, roundIndex, matchIndex) {
+    const currentSlot = { sectionKey, field, roundIndex, matchIndex };
+    const currentMatch = bracket?.rounds?.[roundIndex]?.matches?.[matchIndex];
+    if (!currentMatch) {
+        return;
+    }
+
+    if (!selectedBracketSwapSlot) {
+        selectedBracketSwapSlot = currentSlot;
+        renderBracket();
+        setBracketStatus(`First slot selected for swap: ${currentMatch.displayLabel || currentMatch.label}. Choose the second slot.`);
+        return;
+    }
+
+    if (
+        selectedBracketSwapSlot.sectionKey === currentSlot.sectionKey
+        && selectedBracketSwapSlot.field === currentSlot.field
+        && selectedBracketSwapSlot.roundIndex === currentSlot.roundIndex
+        && selectedBracketSwapSlot.matchIndex === currentSlot.matchIndex
+    ) {
+        selectedBracketSwapSlot = null;
+        renderBracket();
+        setBracketStatus("Swap selection cleared.");
+        return;
+    }
+
+    if (selectedBracketSwapSlot.sectionKey !== currentSlot.sectionKey) {
+        setBracketStatus("Please swap players within the same bracket section.");
+        selectedBracketSwapSlot = null;
+        renderBracket();
+        return;
+    }
+
+    const firstMatch = bracket?.rounds?.[selectedBracketSwapSlot.roundIndex]?.matches?.[selectedBracketSwapSlot.matchIndex];
+    if (!firstMatch) {
+        selectedBracketSwapSlot = null;
+        renderBracket();
+        return;
+    }
+
+    const firstField = selectedBracketSwapSlot.field;
+    const firstByeField = firstField === "slotA" ? "byeA" : "byeB";
+    const secondByeField = field === "slotA" ? "byeA" : "byeB";
+    const firstSeedField = firstField === "slotA" ? "seedA" : "seedB";
+    const secondSeedField = field === "slotA" ? "seedA" : "seedB";
+
+    const firstValue = firstMatch[firstField];
+    const firstBye = Boolean(firstMatch[firstByeField]);
+    const firstSeed = firstMatch[firstSeedField];
+
+    firstMatch[firstField] = currentMatch[field];
+    firstMatch[firstByeField] = Boolean(currentMatch[secondByeField]);
+    firstMatch[firstSeedField] = currentMatch[secondSeedField];
+    currentMatch[field] = firstValue;
+    currentMatch[secondByeField] = firstBye;
+    currentMatch[secondSeedField] = firstSeed;
+
+    bracketDirty = true;
+    selectedBracketSwapSlot = null;
+    renderBracket();
+    setBracketStatus("Players swapped. Review the bracket and click Save bracket to keep the changes.");
 }
 
 function renderFilterCategoryOptions() {
@@ -1881,13 +2832,7 @@ function loadState() {
                     importMeta: normalizeImportMeta(item.importMeta),
                     matches: Array.isArray(item.matches) ? item.matches : [],
                     announcements: Array.isArray(item.announcements) ? item.announcements : [],
-                    bracket: item.bracket
-                        ? {
-                            size: Number(item.bracket.size || 0),
-                            byes: Number(item.bracket.byes || 0),
-                            rounds: Array.isArray(item.bracket.rounds) ? cloneState(item.bracket.rounds) : [],
-                        }
-                        : null,
+                    bracket: normalizeBracketState(item.bracket),
                 }))
                 : [],
             importMeta: normalizeImportMeta(parsed.importMeta),
@@ -1898,6 +2843,45 @@ function loadState() {
     } catch {
         return cloneState(defaultState);
     }
+}
+
+function normalizeBracketState(bracket) {
+    if (!bracket) {
+        return null;
+    }
+
+    if (bracket.type === "double") {
+        return {
+            type: "double",
+            size: Number(bracket.size || 0),
+            byes: Number(bracket.byes || 0),
+            winners: {
+                size: Number(bracket.winners?.size || 0),
+                byes: Number(bracket.winners?.byes || 0),
+                rounds: Array.isArray(bracket.winners?.rounds) ? cloneState(bracket.winners.rounds) : [],
+            },
+            losers: {
+                size: Number(bracket.losers?.size || 0),
+                byes: Number(bracket.losers?.byes || 0),
+                rounds: Array.isArray(bracket.losers?.rounds) ? cloneState(bracket.losers.rounds) : [],
+            },
+            finals: {
+                size: Number(bracket.finals?.size || 0),
+                byes: Number(bracket.finals?.byes || 0),
+                rounds: Array.isArray(bracket.finals?.rounds) ? cloneState(bracket.finals.rounds) : [],
+            },
+            rounds: Array.isArray(bracket.rounds) ? cloneState(bracket.rounds) : [],
+            nextMatchSequence: Number(bracket.nextMatchSequence || 1),
+        };
+    }
+
+    return {
+        type: "single",
+        size: Number(bracket.size || 0),
+        byes: Number(bracket.byes || 0),
+        rounds: Array.isArray(bracket.rounds) ? cloneState(bracket.rounds) : [],
+        nextMatchSequence: Number(bracket.nextMatchSequence || 1),
+    };
 }
 
 function parseCsv(text) {
@@ -2057,30 +3041,6 @@ function exportPlayersCsv(players, fileName) {
         team.aadhar || "",
         team.organization || "",
         team.category || "",
-        team.contact || "",
-    ]);
-
-    const csv = [headers, ...rows]
-        .map((row) => row.map(csvEscape).join(","))
-        .join("\r\n");
-
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = fileName;
-    link.click();
-    URL.revokeObjectURL(url);
-}
-
-function exportBallotCsv(players, fileName) {
-    const headers = ["S.No", "Organization", "Player", "Registration No.", "Aadhar", "Contact"];
-    const rows = players.map((team, index) => [
-        String(index + 1),
-        getDisplayOrganization(team.organization),
-        team.name || "",
-        team.registrationNumber || "",
-        team.aadhar || "",
         team.contact || "",
     ]);
 

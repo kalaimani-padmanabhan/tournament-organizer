@@ -209,7 +209,7 @@
                         </div>
                         <form id="tournamentForm" class="form-grid" style="display: none;">
                             <label>Tournament name<input id="tournamentName" type="text" placeholder="Summer Open Cup" required></label>
-                            <label>Format<select id="tournamentFormat"><option>League</option><option>Single Elimination</option><option>Round Robin</option><option>Hybrid</option></select></label>
+                            <label>Format<select id="tournamentFormat"><option>League</option><option>Single Elimination</option><option>Double Elimination</option><option>Round Robin</option><option>Hybrid</option></select></label>
                             <label>Category<select id="tournamentCategory"><option value="">Import players to load categories</option></select></label>
                             <label class="span-2">Notes<textarea id="tournamentNotes" rows="4" placeholder="Add event notes, rules, check-in time, or organizer instructions"></textarea></label>
                             <button class="button span-2" type="submit">Save tournament</button>
@@ -301,10 +301,14 @@
                                     <option value="">No saved tournaments</option>
                                 </select>
                             </label>
-                            <div class="bracket-actions">
+                              <div class="bracket-actions">
                                 <button class="button secondary" id="generateBracketButton" type="button">Generate bracket</button>
+                                <button class="button ghost" id="bracketEditButton" type="button">Edit bracket</button>
+                                <button class="button ghost" id="bracketSaveButton" type="button">Save bracket</button>
+                                <button class="button ghost" id="exportBracketCsvButton" type="button">Export CSV</button>
+                                <button class="button ghost" id="exportBracketExcelButton" type="button">Export Excel</button>
                                 <button class="button ghost" id="exportBracketPdfButton" type="button">Export PDF</button>
-                            </div>
+                              </div>
                         </div>
                         <div class="bracket-zoom-bar">
                             <button class="button ghost" id="bracketZoomOutButton" type="button">A-</button>
